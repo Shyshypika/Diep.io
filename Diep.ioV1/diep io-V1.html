@@ -1,0 +1,1916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Diep.io WebRTC Multiplayer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="assets/Logo.png">
+    <!-- PeerJS Library for WebRTC -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap');
+        
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            box-sizing: border-box;
+            touch-action: none;
+        }
+
+        body {
+            font-family: 'Ubuntu', sans-serif;
+            overflow: hidden;
+            background-color: #cdcdcd;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Canvas Grid Styling fallback */
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background-color: #b1b1b1;
+        }
+
+        /* Custom Scrollbar for sidebars if needed */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.2);
+            border-radius: 3px;
+        }
+
+        /* Custom Animations */
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 3s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden select-none">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div id="uiOverlay" class="absolute inset-0 pointer-events-none flex flex-col justify-between p-4">
+        
+        <!-- Top HUD: Leaderboard, Room Info, Mute Button -->
+        <div class="flex justify-between items-start w-full">
+            <!-- Left: Room & Mode Info -->
+            <div class="pointer-events-auto bg-slate-900/80 backdrop-blur-md text-white p-3 rounded-xl border border-slate-700 shadow-lg text-xs space-y-1">
+                <div class="flex items-center space-x-2">
+                    <span id="roomStatusBadge" class="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                    <span id="roomStatusText" class="font-bold tracking-wide">Offline / Singleplayer</span>
+                </div>
+                <div id="roomIdContainer" class="hidden flex items-center space-x-2 pt-1 border-t border-slate-700">
+                    <span>Room ID: <strong id="displayRoomId" class="text-amber-400 font-mono">---</strong></span>
+                    <button id="copyRoomBtn" class="bg-slate-700 hover:bg-slate-600 px-2 py-0.5 rounded text-[10px] transition" title="Copy Room ID">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+                <div class="text-[10px] text-slate-400">Players Connected: <span id="peerCount" class="text-white font-bold">1</span></div>
+            </div>
+
+            <!-- Center: Toggle sound & controls hint -->
+            <div class="pointer-events-auto flex items-center space-x-2">
+                <button id="muteBtn" class="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md text-white p-2.5 rounded-xl border border-slate-700 shadow-lg transition">
+                    <i id="muteIcon" class="fa-solid fa-volume-high text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Right: Leaderboard -->
+            <div class="pointer-events-auto bg-slate-900/80 backdrop-blur-md text-white p-3 rounded-xl border border-slate-700 shadow-lg w-48 sm:w-56">
+                <h3 class="text-center font-bold text-sm tracking-wider border-b border-slate-700 pb-1 mb-2 text-slate-200">
+                    <i class="fa-solid fa-trophy text-amber-400 mr-1"></i> LEADERBOARD
+                </h3>
+                <div id="leaderboardList" class="space-y-1 text-xs">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Class Evolutions Selector (Top Left below room info) -->
+        <div id="classUpgradeContainer" class="hidden pointer-events-auto absolute top-20 left-4 bg-slate-900/90 backdrop-blur-md p-3 rounded-xl border border-amber-500/50 shadow-2xl max-w-xs animate-pulse-slow">
+            <h4 class="text-amber-400 font-bold text-xs mb-2 uppercase tracking-wide">Class Upgrade Available!</h4>
+            <div id="classUpgradeButtons" class="grid grid-cols-2 gap-2">
+                <!-- Class Buttons Populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Bottom HUD: Level Progress Bar & Stat Upgrade Sidebar -->
+        <div class="flex flex-col sm:flex-row justify-between items-end w-full gap-4">
+            
+            <!-- Left: Stat Upgrades Menu -->
+            <div id="statUpgradesBox" class="pointer-events-auto bg-slate-900/80 backdrop-blur-md text-white p-3 rounded-xl border border-slate-700 shadow-lg w-64 space-y-1.5 transition-all duration-300">
+                <div class="flex justify-between items-center text-xs border-b border-slate-700 pb-1">
+                    <span class="font-bold text-slate-300">STAT UPGRADES</span>
+                    <span id="availablePoints" class="bg-amber-500 text-slate-900 font-extrabold px-2 py-0.5 rounded-full text-[10px]">Points: 0</span>
+                </div>
+                <div id="statsList" class="space-y-1 text-[11px]">
+                    <!-- Stats rows inserted by JS -->
+                </div>
+            </div>
+
+            <!-- Bottom Center: Experience & Score Bar -->
+            <div class="w-full sm:max-w-md mx-auto pointer-events-auto flex flex-col items-center space-y-1">
+                <div class="text-slate-900 font-black text-sm tracking-wide bg-white/60 px-4 py-0.5 rounded-full shadow backdrop-blur-sm">
+                    <span id="playerTankName">Tank</span> - Lvl <span id="playerLevel">1</span> <span id="playerClassName" class="text-slate-600 font-bold text-xs">(Basic)</span>
+                </div>
+                <div class="w-full bg-slate-900/80 backdrop-blur-md p-1.5 rounded-xl border border-slate-700 shadow-lg">
+                    <div class="relative w-full h-4 bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
+                        <div id="xpBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-200" style="width: 0%"></div>
+                        <span id="xpText" class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white drop-shadow">0 / 100 XP</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Right: Minimap -->
+            <div class="pointer-events-auto bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-700 shadow-lg flex flex-col items-center">
+                <canvas id="minimapCanvas" width="100" height="100" class="rounded-lg bg-slate-800/80"></canvas>
+                <span class="text-[9px] text-slate-400 mt-0.5 font-bold tracking-widest">MAP</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controls & Hotkey Hints Drawer (Floating Bottom Left Toggle) -->
+    <div class="absolute bottom-4 left-4 z-10 pointer-events-auto hidden sm:block">
+        <div id="controlsHint" class="hidden bg-slate-900/90 text-slate-300 text-[10px] p-2.5 rounded-xl border border-slate-700 shadow-xl space-y-1 mb-2 max-w-xs">
+            <div><strong class="text-white">WASD / Arrows:</strong> Move</div>
+            <div><strong class="text-white">Mouse:</strong> Aim & Shoot</div>
+            <div><strong class="text-white">E:</strong> Toggle Auto-Fire</div>
+            <div><strong class="text-white">C:</strong> Toggle Auto-Spin</div>
+            <div><strong class="text-white">Keys 1-8:</strong> Quick Upgrade Stats</div>
+        </div>
+        <button onclick="document.getElementById('controlsHint').classList.toggle('hidden')" class="bg-slate-900/80 hover:bg-slate-800 text-white text-xs px-2.5 py-1 rounded-lg border border-slate-700 shadow backdrop-blur-md">
+            <i class="fa-solid fa-keyboard mr-1"></i> Controls
+        </button>
+    </div>
+
+    <!-- Lobby / Start Menu Modal -->
+    <div id="lobbyModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md text-white space-y-6 relative overflow-hidden">
+            <!-- Decorative Accent -->
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl"></div>
+            <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl"></div>
+
+            <div class="text-center space-y-1">
+                <h1 class="text-3xl sm:text-4xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-300 to-amber-400">
+                    DIEP.IO WEBRTC
+                </h1>
+                <p class="text-xs text-slate-400">2D Arena Tank Shooter with PeerJS Multiplayer</p>
+            </div>
+
+            <!-- Player Name Input -->
+            <div class="space-y-1.5">
+                <label class="text-xs font-bold text-slate-300 uppercase tracking-wider">Tank Name</label>
+                <input type="text" id="playerNameInput" maxlength="15" value="Player" 
+                    class="w-full bg-slate-800 border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-white font-semibold outline-none transition">
+            </div>
+
+            <!-- Connection Mode Tabs -->
+            <div class="space-y-3">
+                <label class="text-xs font-bold text-slate-300 uppercase tracking-wider">Game Mode</label>
+                <div class="grid grid-cols-3 gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs font-bold">
+                    <button type="button" id="tabSingle" class="py-2 rounded-lg bg-cyan-500 text-slate-950 transition">Bots (Offline)</button>
+                    <button type="button" id="tabHost" class="py-2 rounded-lg text-slate-400 hover:text-white transition">Host Room</button>
+                    <button type="button" id="tabJoin" class="py-2 rounded-lg text-slate-400 hover:text-white transition">Join Room</button>
+                </div>
+            </div>
+
+            <!-- Join Room Options (Hidden by default) -->
+            <div id="joinRoomSection" class="hidden space-y-2 pt-1">
+                <input type="text" id="joinRoomIdInput" placeholder="Enter Host Room ID..." 
+                    class="w-full bg-slate-800 border border-slate-700 focus:border-cyan-400 rounded-xl px-4 py-2 text-white font-mono text-sm outline-none transition">
+            </div>
+
+            <!-- Host Room Info (Hidden by default) -->
+            <div id="hostRoomSection" class="hidden space-y-2 text-xs bg-slate-800/50 p-3 rounded-xl border border-slate-700 text-slate-300">
+                <p><i class="fa-solid fa-circle-info text-cyan-400 mr-1"></i> Hosting creates a WebRTC server directly on your device. Share your Room ID with friends to let them join!</p>
+            </div>
+
+            <!-- Start Game Button -->
+            <button id="startGameBtn" class="w-full py-3.5 rounded-xl font-black tracking-wider text-slate-950 bg-gradient-to-r from-cyan-400 via-teal-300 to-amber-400 hover:brightness-110 active:scale-[0.99] shadow-lg shadow-cyan-500/20 transition-all text-base uppercase">
+                Spawn Tank
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="gameOverModal" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-sm text-white text-center space-y-5">
+            <h2 class="text-3xl font-black text-rose-500 tracking-wider">TANK DESTROYED</h2>
+            
+            <div class="bg-slate-800/60 rounded-xl p-4 border border-slate-700 space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Final Score:</span>
+                    <span id="finalScore" class="font-bold text-amber-400">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Level Reached:</span>
+                    <span id="finalLevel" class="font-bold text-cyan-400">1</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Kills:</span>
+                    <span id="finalKills" class="font-bold text-emerald-400">0</span>
+                </div>
+            </div>
+
+            <button id="respawnBtn" class="w-full py-3 rounded-xl font-bold tracking-wider text-slate-950 bg-amber-400 hover:bg-amber-300 active:scale-[0.99] transition shadow-lg shadow-amber-400/20">
+                RESPAWN
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Game Script -->
+    <script>
+        /**
+         * DIEP.IO WEBRTC MULTIPLAYER GAME - MAIN ENGINE
+         */
+
+        // --- CONSTANTS & GAME CONFIG ---
+        const WORLD_SIZE = 3000;
+        const SHAPE_COUNT = 120;
+        const BOT_COUNT = 8;
+        
+        // Colors & Theme (Diep.io palette)
+        const COLORS = {
+            bgGrid: '#cdcdcd',
+            bgLine: '#c1c1c1',
+            border: '#555555',
+            playerBlue: '#00b2e1',
+            enemyRed: '#f14e54',
+            squareYellow: '#ffe869',
+            triangleRed: '#fc7677',
+            pentagonBlue: '#768dfc',
+            barrel: '#999999',
+            healthBarBg: '#555555',
+            healthBarGreen: '#85e37d'
+        };
+
+        // Tank Class Definitions
+        const TANK_CLASSES = {
+            Basic: {
+                levelReq: 1,
+                barrels: [{ x: 0, y: 0, width: 18, height: 35, angleOffset: 0, recoil: 0, delay: 0 }],
+                reloadMultiplier: 1,
+                damageMultiplier: 1,
+                bulletSpeedMult: 1,
+                bulletSizeMult: 1
+            },
+            Twin: {
+                levelReq: 15,
+                upgradesFrom: ['Basic'],
+                barrels: [
+                    { x: -10, y: 0, width: 14, height: 33, angleOffset: 0, recoil: 0, delay: 0 },
+                    { x: 10, y: 0, width: 14, height: 33, angleOffset: 0, recoil: 0, delay: 10 }
+                ],
+                reloadMultiplier: 0.9,
+                damageMultiplier: 0.75,
+                bulletSpeedMult: 1,
+                bulletSizeMult: 0.9
+            },
+            Sniper: {
+                levelReq: 15,
+                upgradesFrom: ['Basic'],
+                barrels: [{ x: 0, y: 0, width: 18, height: 45, angleOffset: 0, recoil: 0, delay: 0 }],
+                reloadMultiplier: 1.5,
+                damageMultiplier: 1.6,
+                bulletSpeedMult: 1.5,
+                bulletSizeMult: 1.1
+            },
+            MachineGun: {
+                levelReq: 15,
+                upgradesFrom: ['Basic'],
+                barrels: [{ x: 0, y: 0, width: 24, height: 32, angleOffset: 0, recoil: 0, delay: 0, spread: 0.3 }],
+                reloadMultiplier: 0.5,
+                damageMultiplier: 0.6,
+                bulletSpeedMult: 0.95,
+                bulletSizeMult: 0.85
+            },
+            FlankGuard: {
+                levelReq: 15,
+                upgradesFrom: ['Basic'],
+                barrels: [
+                    { x: 0, y: 0, width: 18, height: 35, angleOffset: 0, recoil: 0, delay: 0 },
+                    { x: 0, y: 0, width: 16, height: 28, angleOffset: Math.PI, recoil: 0, delay: 0 }
+                ],
+                reloadMultiplier: 1,
+                damageMultiplier: 0.85,
+                bulletSpeedMult: 1,
+                bulletSizeMult: 0.95
+            },
+            TriAngle: {
+                levelReq: 30,
+                upgradesFrom: ['FlankGuard'],
+                barrels: [
+                    { x: 0, y: 0, width: 18, height: 35, angleOffset: 0, recoil: 0, delay: 0 },
+                    { x: 0, y: 0, width: 14, height: 25, angleOffset: Math.PI - 0.4, recoil: 0, delay: 0, recoilForce: 1.5 },
+                    { x: 0, y: 0, width: 14, height: 25, angleOffset: Math.PI + 0.4, recoil: 0, delay: 0, recoilForce: 1.5 }
+                ],
+                reloadMultiplier: 0.8,
+                damageMultiplier: 0.8,
+                bulletSpeedMult: 1.1,
+                bulletSizeMult: 0.9
+            },
+            Destroyer: {
+                levelReq: 30,
+                upgradesFrom: ['MachineGun'],
+                barrels: [{ x: 0, y: 0, width: 32, height: 38, angleOffset: 0, recoil: 0, delay: 0, recoilForce: 3 }],
+                reloadMultiplier: 2.2,
+                damageMultiplier: 3.5,
+                bulletSpeedMult: 0.85,
+                bulletSizeMult: 2.2
+            }
+        };
+
+        // Stats Definitions (1 to 8)
+        const STAT_KEYS = [
+            { id: 'healthRegen', name: 'Health Regen', color: '#ff9800' },
+            { id: 'maxHealth', name: 'Max Health', color: '#e91e63' },
+            { id: 'bodyDamage', name: 'Body Damage', color: '#9c27b0' },
+            { id: 'bulletSpeed', name: 'Bullet Speed', color: '#00bcd4' },
+            { id: 'bulletPenetration', name: 'Bullet Penetration', color: '#2196f3' },
+            { id: 'bulletDamage', name: 'Bullet Damage', color: '#f44336' },
+            { id: 'reload', name: 'Reload', color: '#4caf50' },
+            { id: 'movementSpeed', name: 'Movement Speed', color: '#8bc34a' }
+        ];
+
+        // Level XP Curve Requirements
+        function getXpForLevel(lvl) {
+            return Math.floor(25 * Math.pow(lvl, 1.35));
+        }
+
+        // --- SOUND SYNTHESIZER (Web Audio API) ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+            }
+
+            playShoot() {
+                if (this.muted || !this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(160, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.08);
+                } catch(e){}
+            }
+
+            playHit() {
+                if (this.muted || !this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(220, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.05);
+                    gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.05);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.05);
+                } catch(e){}
+            }
+
+            playExplode() {
+                if (this.muted || !this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(100, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.2);
+                } catch(e){}
+            }
+
+            playLevelUp() {
+                if (this.muted || !this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.25);
+                } catch(e){}
+            }
+        }
+
+        const sound = new SoundEngine();
+
+        // --- GAME STATE VARIABLES ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const minimapCanvas = document.getElementById('minimapCanvas');
+        const minimapCtx = minimapCanvas.getContext('2d');
+
+        let camera = { x: 0, y: 0 };
+        let mousePos = { x: 0, y: 0 }; // Screen space
+        let worldMousePos = { x: 0, y: 0 }; // World space
+        let keys = {};
+
+        let isAutoFire = false;
+        let isAutoSpin = false;
+
+        let localPlayer = null;
+        let players = new Map(); // id -> Player Tank
+        let bullets = [];
+        let shapes = [];
+        let particles = [];
+        let floatingTexts = [];
+
+        // Game Mode & Network Config
+        let gameMode = 'single'; // 'single', 'host', 'join'
+        let peer = null;
+        let peerConnections = new Map(); // connId -> connection object
+        let myPeerId = '';
+        let isHost = true;
+
+        class Particle {
+            constructor(x, y, color, size, velocity) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = size;
+                this.vx = velocity.x;
+                this.vy = velocity.y;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.02;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                this.life -= this.decay;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x - camera.x, this.y - camera.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.vy = -1.5;
+                this.life = 1.0;
+            }
+
+            update() {
+                this.y += this.vy;
+                this.life -= 0.025;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.font = 'bold 14px Ubuntu, sans-serif';
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
+                ctx.strokeText(this.text, this.x - camera.x, this.y - camera.y);
+                ctx.fillText(this.text, this.x - camera.x, this.y - camera.y);
+                ctx.restore();
+            }
+        }
+
+        class Shape {
+            constructor(id, type, x, y) {
+                this.id = id || Math.random().toString(36).substr(2, 9);
+                this.type = type; // 'square', 'triangle', 'pentagon'
+                this.x = x || Math.random() * (WORLD_SIZE - 200) + 100;
+                this.y = y || Math.random() * (WORLD_SIZE - 200) + 100;
+                this.angle = Math.random() * Math.PI * 2;
+                this.vRot = (Math.random() - 0.5) * 0.02;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+
+                if (type === 'square') {
+                    this.sides = 4;
+                    this.radius = 18;
+                    this.maxHealth = 30;
+                    this.xpValue = 10;
+                    this.color = COLORS.squareYellow;
+                    this.bodyDamage = 8;
+                } else if (type === 'triangle') {
+                    this.sides = 3;
+                    this.radius = 22;
+                    this.maxHealth = 60;
+                    this.xpValue = 25;
+                    this.color = COLORS.triangleRed;
+                    this.bodyDamage = 12;
+                } else if (type === 'pentagon') {
+                    this.sides = 5;
+                    this.radius = 32;
+                    this.maxHealth = 180;
+                    this.xpValue = 130;
+                    this.color = COLORS.pentagonBlue;
+                    this.bodyDamage = 20;
+                }
+
+                this.health = this.maxHealth;
+                this.flashTimer = 0;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.angle += this.vRot;
+
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+
+                if (this.x < this.radius) { this.x = this.radius; this.vx *= -1; }
+                if (this.x > WORLD_SIZE - this.radius) { this.x = WORLD_SIZE - this.radius; this.vx *= -1; }
+                if (this.y < this.radius) { this.y = this.radius; this.vy *= -1; }
+                if (this.y > WORLD_SIZE - this.radius) { this.y = WORLD_SIZE - this.radius; this.vy *= -1; }
+
+                if (this.flashTimer > 0) this.flashTimer--;
+            }
+
+            draw(ctx) {
+                const screenX = this.x - camera.x;
+                const screenY = this.y - camera.y;
+
+                if (screenX < -100 || screenX > canvas.width + 100 || screenY < -100 || screenY > canvas.height + 100) return;
+
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.rotate(this.angle);
+
+                ctx.fillStyle = this.flashTimer > 0 ? '#ffffff' : this.color;
+                ctx.strokeStyle = COLORS.border;
+                ctx.lineWidth = 3.5;
+
+                ctx.beginPath();
+                for (let i = 0; i < this.sides; i++) {
+                    const a = (i * 2 * Math.PI) / this.sides;
+                    const px = this.radius * Math.cos(a);
+                    const py = this.radius * Math.sin(a);
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.restore();
+
+                if (this.health < this.maxHealth) {
+                    const barW = this.radius * 2;
+                    const barH = 5;
+                    const barX = screenX - barW / 2;
+                    const barY = screenY + this.radius + 8;
+
+                    ctx.fillStyle = COLORS.healthBarBg;
+                    ctx.fillRect(barX, barY, barW, barH);
+                    ctx.fillStyle = COLORS.healthBarGreen;
+                    ctx.fillRect(barX, barY, Math.max(0, (this.health / this.maxHealth) * barW), barH);
+                }
+            }
+        }
+
+        class Bullet {
+            constructor(ownerId, x, y, angle, speed, damage, penetration, radius, color) {
+                this.id = Math.random().toString(36).substr(2, 9);
+                this.ownerId = ownerId;
+                this.x = x;
+                this.y = y;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.damage = damage;
+                this.penetration = penetration;
+                this.radius = radius;
+                this.color = color;
+                this.lifespan = 180;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.lifespan--;
+            }
+
+            draw(ctx) {
+                const screenX = this.x - camera.x;
+                const screenY = this.y - camera.y;
+
+                if (screenX < -50 || screenX > canvas.width + 50 || screenY < -50 || screenY > canvas.height + 50) return;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = COLORS.border;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Tank {
+            constructor(id, name, isBot = false, x = null, y = null) {
+                this.id = id;
+                this.name = name || 'Tank';
+                this.isBot = isBot;
+                
+                this.x = x || Math.random() * (WORLD_SIZE - 400) + 200;
+                this.y = y || Math.random() * (WORLD_SIZE - 400) + 200;
+                this.vx = 0;
+                this.vy = 0;
+                this.angle = 0;
+                this.radius = 24;
+                this.color = isBot ? COLORS.enemyRed : COLORS.playerBlue;
+
+                this.className = 'Basic';
+                this.level = 1;
+                this.xp = 0;
+                this.score = 0;
+                this.kills = 0;
+                this.availablePoints = 0;
+
+                this.stats = {
+                    healthRegen: 0,
+                    maxHealth: 0,
+                    bodyDamage: 0,
+                    bulletSpeed: 0,
+                    bulletPenetration: 0,
+                    bulletDamage: 0,
+                    reload: 0,
+                    movementSpeed: 0
+                };
+
+                this.maxHealth = 100;
+                this.health = 100;
+                this.reloadTimers = [0, 0, 0, 0];
+                this.flashTimer = 0;
+                this.isShooting = false;
+
+                this.aiTarget = null;
+                this.aiChangeDirTimer = 0;
+            }
+
+            getStatValue(key) {
+                const pts = this.stats[key] || 0;
+                switch(key) {
+                    case 'healthRegen': return 0.02 + pts * 0.03;
+                    case 'maxHealth': return 100 + pts * 20;
+                    case 'bodyDamage': return 15 + pts * 5;
+                    case 'bulletSpeed': return 7 + pts * 1.2;
+                    case 'bulletPenetration': return 20 + pts * 15;
+                    case 'bulletDamage': return 12 + pts * 6;
+                    case 'reload': return Math.max(8, 28 - pts * 2.2);
+                    case 'movementSpeed': return 3.2 + pts * 0.4;
+                }
+            }
+
+            addXp(amount) {
+                this.xp += amount;
+                this.score += amount;
+                
+                let req = getXpForLevel(this.level);
+                while (this.xp >= req && this.level < 45) {
+                    this.xp -= req;
+                    this.level++;
+                    this.availablePoints++;
+                    req = getXpForLevel(this.level);
+
+                    if (this.id === localPlayer?.id) {
+                        sound.playLevelUp();
+                        updateStatUI();
+                        checkClassUpgrades();
+                    }
+                }
+                this.updateDerivedStats();
+            }
+
+            updateDerivedStats() {
+                const hpPercent = this.maxHealth ? (this.health / this.maxHealth) : 1;
+                this.maxHealth = this.getStatValue('maxHealth') + (this.level - 1) * 5;
+                this.health = Math.min(this.maxHealth, this.maxHealth * hpPercent);
+                this.radius = 22 + Math.min(10, this.level * 0.2);
+            }
+
+            upgradeStat(statKey) {
+                if (this.availablePoints > 0 && this.stats[statKey] < 7) {
+                    this.stats[statKey]++;
+                    this.availablePoints--;
+                    this.updateDerivedStats();
+                    return true;
+                }
+                return false;
+            }
+
+            changeClass(newClassName) {
+                if (TANK_CLASSES[newClassName]) {
+                    this.className = newClassName;
+                    if (this.id === localPlayer?.id) {
+                        checkClassUpgrades();
+                        document.getElementById('playerClassName').innerText = `(${this.className})`;
+                    }
+                }
+            }
+
+            update() {
+                if (this.health < this.maxHealth) {
+                    this.health = Math.min(this.maxHealth, this.health + this.getStatValue('healthRegen'));
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.88;
+                this.vy *= 0.88;
+
+                if (this.x < this.radius) { this.x = this.radius; this.vx = 0; }
+                if (this.x > WORLD_SIZE - this.radius) { this.x = WORLD_SIZE - this.radius; this.vx = 0; }
+                if (this.y < this.radius) { this.y = this.radius; this.vy = 0; }
+                if (this.y > WORLD_SIZE - this.radius) { this.y = WORLD_SIZE - this.radius; this.vy = 0; }
+
+                if (this.flashTimer > 0) this.flashTimer--;
+
+                const tankClass = TANK_CLASSES[this.className] || TANK_CLASSES.Basic;
+                
+                for (let i = 0; i < tankClass.barrels.length; i++) {
+                    if (this.reloadTimers[i] === undefined) this.reloadTimers[i] = 0;
+                    if (this.reloadTimers[i] > 0) this.reloadTimers[i]--;
+
+                    const barrel = tankClass.barrels[i];
+                    if (barrel.recoil > 0) barrel.recoil *= 0.8;
+
+                    if (this.isShooting && this.reloadTimers[i] <= 0) {
+                        const reloadDelay = this.getStatValue('reload') * tankClass.reloadMultiplier;
+                        this.reloadTimers[i] = reloadDelay;
+                        barrel.recoil = 8;
+
+                        const fireAngle = this.angle + barrel.angleOffset + (barrel.spread ? (Math.random() - 0.5) * barrel.spread : 0);
+                        const bulletX = this.x + Math.cos(fireAngle) * (barrel.height + this.radius * 0.5);
+                        const bulletY = this.y + Math.sin(fireAngle) * (barrel.height + this.radius * 0.5);
+
+                        const speed = this.getStatValue('bulletSpeed') * tankClass.bulletSpeedMult;
+                        const damage = this.getStatValue('bulletDamage') * tankClass.damageMultiplier;
+                        const pen = this.getStatValue('bulletPenetration');
+                        const bRadius = 8 * tankClass.bulletSizeMult;
+
+                        const b = new Bullet(this.id, bulletX, bulletY, fireAngle, speed, damage, pen, bRadius, this.color);
+                        bullets.push(b);
+
+                        const rForce = barrel.recoilForce || 0.4;
+                        this.vx -= Math.cos(fireAngle) * rForce;
+                        this.vy -= Math.sin(fireAngle) * rForce;
+
+                        if (this.id === localPlayer?.id) sound.playShoot();
+                    }
+                }
+
+                if (this.isBot && isHost) {
+                    this.updateAI();
+                }
+            }
+
+            updateAI() {
+                this.aiChangeDirTimer--;
+                
+                if (!this.aiTarget || Math.random() < 0.02) {
+                    let nearest = null;
+                    let minDist = 600;
+
+                    shapes.forEach(s => {
+                        const d = Math.hypot(s.x - this.x, s.y - this.y);
+                        if (d < minDist) { minDist = d; nearest = s; }
+                    });
+
+                    players.forEach(p => {
+                        if (p.id !== this.id && p.health > 0) {
+                            const dPlayer = Math.hypot(p.x - this.x, p.y - this.y);
+                            if (dPlayer < minDist) { nearest = p; }
+                        }
+                    });
+
+                    this.aiTarget = nearest;
+                }
+
+                if (this.aiTarget) {
+                    const dx = this.aiTarget.x - this.x;
+                    const dy = this.aiTarget.y - this.y;
+                    this.angle = Math.atan2(dy, dx);
+                    this.isShooting = true;
+
+                    const moveSpeed = this.getStatValue('movementSpeed') * 0.7;
+                    this.vx += Math.cos(this.angle) * moveSpeed * 0.1;
+                    this.vy += Math.sin(this.angle) * moveSpeed * 0.1;
+                } else {
+                    this.isShooting = false;
+                    if (this.aiChangeDirTimer <= 0) {
+                        this.angle += (Math.random() - 0.5) * 2;
+                        this.aiChangeDirTimer = 60 + Math.random() * 120;
+                    }
+                    const moveSpeed = this.getStatValue('movementSpeed') * 0.4;
+                    this.vx += Math.cos(this.angle) * moveSpeed * 0.1;
+                    this.vy += Math.sin(this.angle) * moveSpeed * 0.1;
+                }
+
+                if (this.availablePoints > 0) {
+                    const keys = Object.keys(this.stats);
+                    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+                    this.upgradeStat(randomKey);
+                }
+            }
+
+            draw(ctx) {
+                const screenX = this.x - camera.x;
+                const screenY = this.y - camera.y;
+
+                if (screenX < -100 || screenX > canvas.width + 100 || screenY < -100 || screenY > canvas.height + 100) return;
+
+                const tankClass = TANK_CLASSES[this.className] || TANK_CLASSES.Basic;
+
+                ctx.save();
+                ctx.translate(screenX, screenY);
+
+                tankClass.barrels.forEach((barrel) => {
+                    ctx.save();
+                    ctx.rotate(this.angle + barrel.angleOffset);
+                    
+                    const recoilOffset = barrel.recoil || 0;
+                    ctx.fillStyle = COLORS.barrel;
+                    ctx.strokeStyle = COLORS.border;
+                    ctx.lineWidth = 3.5;
+
+                    const bx = barrel.x;
+                    const by = -barrel.width / 2 + barrel.y;
+                    const bw = barrel.height - recoilOffset;
+                    const bh = barrel.width;
+
+                    ctx.beginPath();
+                    ctx.rect(bx, by, bw, bh);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.restore();
+                });
+
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.flashTimer > 0 ? '#ffffff' : this.color;
+                ctx.fill();
+                ctx.lineWidth = 3.5;
+                ctx.strokeStyle = COLORS.border;
+                ctx.stroke();
+
+                ctx.restore();
+
+                ctx.save();
+                ctx.font = 'bold 12px Ubuntu, sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3;
+                ctx.textAlign = 'center';
+                ctx.strokeText(this.name, screenX, screenY - this.radius - 16);
+                ctx.fillText(this.name, screenX, screenY - this.radius - 16);
+
+                if (this.health < this.maxHealth) {
+                    const barW = this.radius * 2.2;
+                    const barH = 6;
+                    const barX = screenX - barW / 2;
+                    const barY = screenY + this.radius + 10;
+
+                    ctx.fillStyle = COLORS.healthBarBg;
+                    ctx.fillRect(barX, barY, barW, barH);
+                    ctx.fillStyle = COLORS.healthBarGreen;
+                    ctx.fillRect(barX, barY, Math.max(0, (this.health / this.maxHealth) * barW), barH);
+                }
+                ctx.restore();
+            }
+        }
+
+        function initWorld() {
+            shapes = [];
+            bullets = [];
+            particles = [];
+            floatingTexts = [];
+
+            if (isHost) {
+                for (let i = 0; i < SHAPE_COUNT; i++) {
+                    spawnRandomShape();
+                }
+
+                if (gameMode === 'single') {
+                    for (let i = 0; i < BOT_COUNT; i++) {
+                        const botId = 'bot_' + Math.random().toString(36).substr(2, 6);
+                        const bot = new Tank(botId, `Bot ${i+1}`, true);
+                        players.set(botId, bot);
+                    }
+                }
+            }
+        }
+
+        function spawnRandomShape() {
+            const rand = Math.random();
+            let type = 'square';
+            if (rand > 0.65 && rand < 0.9) type = 'triangle';
+            else if (rand >= 0.9) type = 'pentagon';
+
+            const shape = new Shape(null, type);
+            shapes.push(shape);
+            return shape;
+        }
+
+        function checkCollisions() {
+            if (!isHost) return;
+
+            // 1. Bullets vs Shapes
+            for (let bIndex = bullets.length - 1; bIndex >= 0; bIndex--) {
+                const b = bullets[bIndex];
+                
+                for (let sIndex = shapes.length - 1; sIndex >= 0; sIndex--) {
+                    const s = shapes[sIndex];
+                    const dist = Math.hypot(b.x - s.x, b.y - s.y);
+
+                    if (dist < b.radius + s.radius) {
+                        s.health -= b.damage;
+                        s.flashTimer = 3;
+                        b.penetration -= s.bodyDamage * 0.5;
+
+                        s.vx += b.vx * 0.1;
+                        s.vy += b.vy * 0.1;
+
+                        createParticles(b.x, b.y, s.color, 4);
+
+                        if (s.health <= 0) {
+                            createParticles(s.x, s.y, s.color, 12);
+                            floatingTexts.push(new FloatingText(s.x, s.y, `+${s.xpValue}`, '#ffe869'));
+                            
+                            const owner = players.get(b.ownerId);
+                            if (owner) owner.addXp(s.xpValue);
+
+                            shapes.splice(sIndex, 1);
+                            spawnRandomShape();
+                            sound.playExplode();
+                        } else {
+                            sound.playHit();
+                        }
+
+                        if (b.penetration <= 0) {
+                            bullets.splice(bIndex, 1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 2. Bullets vs Players
+            for (let bIndex = bullets.length - 1; bIndex >= 0; bIndex--) {
+                const b = bullets[bIndex];
+
+                players.forEach((player) => {
+                    if (player.id === b.ownerId || player.health <= 0) return;
+
+                    const dist = Math.hypot(b.x - player.x, b.y - player.y);
+                    if (dist < b.radius + player.radius) {
+                        player.health -= b.damage;
+                        player.flashTimer = 4;
+                        b.penetration -= player.getStatValue('bodyDamage');
+
+                        player.vx += b.vx * 0.12;
+                        player.vy += b.vy * 0.12;
+
+                        createParticles(b.x, b.y, player.color, 4);
+
+                        if (player.health <= 0) {
+                            handleKill(b.ownerId, player);
+                        } else {
+                            sound.playHit();
+                        }
+
+                        if (b.penetration <= 0) {
+                            bullets.splice(bIndex, 1);
+                        }
+                    }
+                });
+            }
+
+            // 3. Players vs Shapes
+            players.forEach((player) => {
+                if (player.health <= 0) return;
+                shapes.forEach((s, sIndex) => {
+                    const dist = Math.hypot(player.x - s.x, player.y - s.y);
+                    if (dist < player.radius + s.radius) {
+                        const overlap = (player.radius + s.radius) - dist;
+                        const angle = Math.atan2(player.y - s.y, player.x - s.x);
+
+                        player.x += Math.cos(angle) * overlap * 0.5;
+                        player.y += Math.sin(angle) * overlap * 0.5;
+                        s.x -= Math.cos(angle) * overlap * 0.5;
+                        s.y -= Math.sin(angle) * overlap * 0.5;
+
+                        player.health -= s.bodyDamage * 0.1;
+                        s.health -= player.getStatValue('bodyDamage') * 0.1;
+                        player.flashTimer = 2;
+                        s.flashTimer = 2;
+
+                        if (s.health <= 0) {
+                            createParticles(s.x, s.y, s.color, 12);
+                            player.addXp(s.xpValue);
+                            shapes.splice(sIndex, 1);
+                            spawnRandomShape();
+                        }
+                        if (player.health <= 0) {
+                            handleKill('shape', player);
+                        }
+                    }
+                });
+            });
+
+            // 4. Players vs Players
+            const playerList = Array.from(players.values()).filter(p => p.health > 0);
+            for (let i = 0; i < playerList.length; i++) {
+                for (let j = i + 1; j < playerList.length; j++) {
+                    const p1 = playerList[i];
+                    const p2 = playerList[j];
+
+                    const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+                    if (dist < p1.radius + p2.radius) {
+                        const overlap = (p1.radius + p2.radius) - dist;
+                        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
+                        p1.x -= Math.cos(angle) * overlap * 0.5;
+                        p1.y -= Math.sin(angle) * overlap * 0.5;
+                        p2.x += Math.cos(angle) * overlap * 0.5;
+                        p2.y += Math.sin(angle) * overlap * 0.5;
+
+                        p1.health -= p2.getStatValue('bodyDamage') * 0.08;
+                        p2.health -= p1.getStatValue('bodyDamage') * 0.08;
+
+                        if (p1.health <= 0) handleKill(p2.id, p1);
+                        if (p2.health <= 0) handleKill(p1.id, p2);
+                    }
+                }
+            }
+        }
+
+        function handleKill(killerId, victim) {
+            createParticles(victim.x, victim.y, victim.color, 25);
+            sound.playExplode();
+
+            const killer = players.get(killerId);
+            if (killer) {
+                killer.kills++;
+                killer.addXp(victim.score * 0.5 + 200);
+                floatingTexts.push(new FloatingText(victim.x, victim.y, `KILLED ${victim.name}!`, '#f14e54'));
+            }
+
+            if (victim.id === localPlayer?.id) {
+                showGameOver();
+            } else if (victim.isBot) {
+                players.delete(victim.id);
+                setTimeout(() => {
+                    if (isHost) {
+                        const newBotId = 'bot_' + Math.random().toString(36).substr(2, 6);
+                        players.set(newBotId, new Tank(newBotId, `Bot ${Math.floor(Math.random()*90+10)}`, true));
+                    }
+                }, 3000);
+            } else {
+                players.delete(victim.id);
+            }
+        }
+
+        function createParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 4 + 1;
+                particles.push(new Particle(x, y, color, Math.random() * 4 + 2, {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed
+                }));
+            }
+        }
+
+        function initPeerJS(customId = null) {
+            if (peer) {
+                try { peer.destroy(); } catch(e){}
+            }
+
+            try {
+                const peerOptions = {
+                    debug: 1,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' }
+                        ]
+                    }
+                };
+
+                peer = customId ? new Peer(customId, peerOptions) : new Peer(peerOptions);
+            } catch (err) {
+                console.error("Peer creation error:", err);
+                updateRoomBadge('Offline Mode (Peer Server Error)', 'bg-yellow-500');
+                isHost = true;
+                return;
+            }
+
+            peer.on('open', (id) => {
+                myPeerId = id;
+                document.getElementById('displayRoomId').innerText = id;
+                if (gameMode === 'host') {
+                    updateRoomBadge('Hosting Room', 'bg-emerald-500');
+                }
+            });
+
+            peer.on('connection', (conn) => {
+                peerConnections.set(conn.peer, conn);
+                updatePeerCount();
+
+                conn.on('data', (data) => handleNetworkData(data, conn.peer));
+                conn.on('close', () => {
+                    players.delete(conn.peer);
+                    peerConnections.delete(conn.peer);
+                    updatePeerCount();
+                });
+                conn.on('error', (err) => {
+                    console.warn('Connection error with peer:', conn.peer, err);
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.warn('PeerJS background notice:', err);
+                const errType = err ? (err.type || err.message || 'Network Error') : 'Unknown Error';
+                
+                if (errType === 'unavailable-id') {
+                    setTimeout(() => initPeerJS(), 500);
+                    return;
+                }
+                
+                if (gameMode === 'join') {
+                    updateRoomBadge('Could Not Join Room', 'bg-rose-500');
+                } else {
+                    updateRoomBadge('Offline / Bot Mode', 'bg-yellow-500');
+                }
+            });
+        }
+
+        function joinRoom(hostId) {
+            updateRoomBadge('Connecting...', 'bg-yellow-500');
+
+            let attempts = 0;
+            const attemptConnection = () => {
+                if (!peer || !peer.open) {
+                    attempts++;
+                    if (attempts > 25) {
+                        updateRoomBadge('Signaling Failed', 'bg-rose-500');
+                        return;
+                    }
+                    setTimeout(attemptConnection, 200);
+                    return;
+                }
+
+                try {
+                    const conn = peer.connect(hostId, { reliable: true });
+                    
+                    conn.on('open', () => {
+                        peerConnections.set(hostId, conn);
+                        updateRoomBadge('Connected to Host', 'bg-emerald-500');
+                        
+                        // Send initial join packet using actual Peer ID
+                        conn.send({
+                            type: 'join',
+                            id: myPeerId,
+                            name: localPlayer ? localPlayer.name : 'Player'
+                        });
+                    });
+
+                    conn.on('data', (data) => handleNetworkData(data, hostId));
+                    conn.on('close', () => {
+                        updateRoomBadge('Disconnected', 'bg-rose-500');
+                    });
+                    conn.on('error', (err) => {
+                        console.error('Failed to connect to host:', err);
+                        updateRoomBadge('Host Connection Failed', 'bg-rose-500');
+                    });
+                } catch (e) {
+                    console.error('Join attempt failed:', e);
+                    updateRoomBadge('Connection Error', 'bg-rose-500');
+                }
+            };
+
+            attemptConnection();
+        }
+
+        function handleNetworkData(data, senderId) {
+            if (data.type === 'join' && isHost) {
+                // Remove any stale player instances with this sender ID
+                players.delete(senderId);
+                const newPlayer = new Tank(senderId, data.name || 'Peer Tank');
+                players.set(senderId, newPlayer);
+                updatePeerCount();
+            } 
+            else if (data.type === 'playerUpdate') {
+                let p = players.get(senderId);
+                if (!p && isHost) {
+                    // Auto-create tank if missing on host
+                    p = new Tank(senderId, data.name || 'Peer Tank');
+                    players.set(senderId, p);
+                }
+                if (p && p.health > 0) {
+                    p.x = data.x;
+                    p.y = data.y;
+                    p.angle = data.angle;
+                    p.isShooting = data.isShooting;
+                    p.className = data.className;
+                    if (data.stats) p.stats = data.stats;
+                }
+            } 
+            else if (data.type === 'respawn' && isHost) {
+                let existingPlayer = players.get(senderId);
+                if (!existingPlayer) {
+                    existingPlayer = new Tank(senderId, data.name || 'Peer Tank');
+                    players.set(senderId, existingPlayer);
+                }
+                existingPlayer.maxHealth = existingPlayer.getStatValue('maxHealth');
+                existingPlayer.health = existingPlayer.maxHealth;
+                existingPlayer.x = Math.random() * (WORLD_SIZE - 400) + 200;
+                existingPlayer.y = Math.random() * (WORLD_SIZE - 400) + 200;
+                existingPlayer.vx = 0;
+                existingPlayer.vy = 0;
+                existingPlayer.flashTimer = 0;
+            }
+            else if (data.type === 'hostGameState' && !isHost) {
+                // Synchronize shapes
+                shapes = data.shapes.map(sData => {
+                    const shape = new Shape(sData.id, sData.type, sData.x, sData.y);
+                    shape.health = sData.health;
+                    shape.angle = sData.angle;
+                    return shape;
+                });
+
+                const activePeerIds = new Set();
+
+                data.players.forEach(pData => {
+                    activePeerIds.add(pData.id);
+
+                    // If this is our local player state coming back from host
+                    if (pData.id === localPlayer?.id || pData.id === myPeerId) {
+                        if (localPlayer) {
+                            const wasAlive = localPlayer.health > 0;
+                            
+                            localPlayer.xp = pData.xp;
+                            localPlayer.level = pData.level;
+                            localPlayer.score = pData.score;
+                            localPlayer.health = pData.health;
+                            localPlayer.maxHealth = pData.maxHealth;
+
+                            // Trigger death menu if health dropped to 0 or lower
+                            if (wasAlive && pData.health <= 0) {
+                                showGameOver();
+                            }
+                        }
+                        return;
+                    }
+
+                    // For all other connected remote players (only add if alive)
+                    if (pData.health > 0) {
+                        let p = players.get(pData.id);
+                        if (!p) {
+                            p = new Tank(pData.id, pData.name, pData.isBot, pData.x, pData.y);
+                            players.set(pData.id, p);
+                        }
+                        p.x = pData.x;
+                        p.y = pData.y;
+                        p.angle = pData.angle;
+                        p.health = pData.health;
+                        p.maxHealth = pData.maxHealth;
+                        p.className = pData.className;
+                        p.isShooting = pData.isShooting;
+                        p.score = pData.score;
+                        p.level = pData.level;
+                    } else {
+                        players.delete(pData.id);
+                    }
+                });
+
+                // Remove disconnected/dead remote entities that aren't local player
+                for (let [id, p] of players) {
+                    if (id !== localPlayer?.id && id !== myPeerId && !activePeerIds.has(id)) {
+                        players.delete(id);
+                    }
+                }
+
+                // Synchronize bullets
+                bullets = data.bullets.map(bData => {
+                    return new Bullet(bData.ownerId, bData.x, bData.y, 0, 0, bData.damage, 1, bData.radius, bData.color);
+                });
+            }
+        }
+
+        function broadcastGameState() {
+            if (!isHost) return;
+
+            const playersArray = Array.from(players.values()).map(p => ({
+                id: p.id,
+                name: p.name,
+                x: p.x,
+                y: p.y,
+                angle: p.angle,
+                health: p.health,
+                maxHealth: p.maxHealth,
+                className: p.className,
+                isShooting: p.isShooting,
+                isBot: p.isBot,
+                score: p.score,
+                level: p.level,
+                xp: p.xp
+            }));
+
+            const shapesArray = shapes.map(s => ({
+                id: s.id,
+                type: s.type,
+                x: s.x,
+                y: s.y,
+                angle: s.angle,
+                health: s.health
+            }));
+
+            const bulletsArray = bullets.map(b => ({
+                ownerId: b.ownerId,
+                x: b.x,
+                y: b.y,
+                radius: b.radius,
+                color: b.color,
+                damage: b.damage
+            }));
+
+            const packet = {
+                type: 'hostGameState',
+                players: playersArray,
+                shapes: shapesArray,
+                bullets: bulletsArray
+            };
+
+            peerConnections.forEach((conn) => {
+                if (conn.open) conn.send(packet);
+            });
+        }
+
+        function sendLocalPlayerUpdate() {
+            if (isHost || !localPlayer) return;
+
+            const packet = {
+                type: 'playerUpdate',
+                name: localPlayer.name,
+                x: localPlayer.x,
+                y: localPlayer.y,
+                angle: localPlayer.angle,
+                isShooting: localPlayer.isShooting,
+                className: localPlayer.className,
+                stats: localPlayer.stats
+            };
+
+            peerConnections.forEach((conn) => {
+                if (conn.open) conn.send(packet);
+            });
+        }
+
+        function sendRespawnSignal() {
+            if (isHost || !localPlayer) return;
+
+            const packet = {
+                type: 'respawn',
+                id: localPlayer.id,
+                name: localPlayer.name
+            };
+
+            peerConnections.forEach((conn) => {
+                if (conn.open) conn.send(packet);
+            });
+        }
+
+        function updateRoomBadge(text, colorClass) {
+            const badge = document.getElementById('roomStatusBadge');
+            const statusText = document.getElementById('roomStatusText');
+            badge.className = `w-2.5 h-2.5 rounded-full ${colorClass}`;
+            statusText.innerText = text;
+        }
+
+        function updatePeerCount() {
+            document.getElementById('peerCount').innerText = peerConnections.size + 1;
+        }
+
+        function handleInput() {
+            if (!localPlayer || localPlayer.health <= 0) return;
+
+            let moveX = 0;
+            let moveY = 0;
+
+            if (keys['w'] || keys['W'] || keys['ArrowUp']) moveY -= 1;
+            if (keys['s'] || keys['S'] || keys['ArrowDown']) moveY += 1;
+            if (keys['a'] || keys['A'] || keys['ArrowLeft']) moveX -= 1;
+            if (keys['d'] || keys['D'] || keys['ArrowRight']) moveX += 1;
+
+            if (moveX !== 0 && moveY !== 0) {
+                moveX *= 0.7071;
+                moveY *= 0.7071;
+            }
+
+            if (moveX === 0) {
+                localPlayer.vx *= 0.7;
+                if (Math.abs(localPlayer.vx) < 0.01) localPlayer.vx = 0;
+            } else {
+                const speed = localPlayer.getStatValue('movementSpeed');
+                localPlayer.vx += moveX * speed * 0.2;
+            }
+
+            if (moveY === 0) {
+                localPlayer.vy *= 0.7;
+                if (Math.abs(localPlayer.vy) < 0.01) localPlayer.vy = 0;
+            } else {
+                const speed = localPlayer.getStatValue('movementSpeed');
+                localPlayer.vy += moveY * speed * 0.2;
+            }
+
+            if (isAutoSpin) {
+                localPlayer.angle += 0.04;
+            } else {
+                worldMousePos.x = mousePos.x + camera.x;
+                worldMousePos.y = mousePos.y + camera.y;
+                localPlayer.angle = Math.atan2(worldMousePos.y - localPlayer.y, worldMousePos.x - localPlayer.x);
+            }
+
+            localPlayer.isShooting = keys['MouseDown'] || isAutoFire;
+        }
+
+        window.addEventListener('blur', () => {
+            keys = {};
+        });
+
+        window.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+
+            if (e.key === 'e' || e.key === 'E') isAutoFire = !isAutoFire;
+            if (e.key === 'c' || e.key === 'C') isAutoSpin = !isAutoSpin;
+
+            const numKey = parseInt(e.key);
+            if (numKey >= 1 && numKey <= 8 && localPlayer) {
+                const statObj = STAT_KEYS[numKey - 1];
+                if (statObj && localPlayer.upgradeStat(statObj.id)) {
+                    updateStatUI();
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+        });
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 0) keys['MouseDown'] = true;
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) keys['MouseDown'] = false;
+        });
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let lastTime = performance.now();
+
+        function gameLoop(time) {
+            const dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            if (localPlayer && localPlayer.health > 0) {
+                handleInput();
+                localPlayer.update();
+
+                camera.x += (localPlayer.x - canvas.width / 2 - camera.x) * 0.1;
+                camera.y += (localPlayer.y - canvas.height / 2 - camera.y) * 0.1;
+
+                camera.x = Math.max(0, Math.min(WORLD_SIZE - canvas.width, camera.x));
+                camera.y = Math.max(0, Math.min(WORLD_SIZE - canvas.height, camera.y));
+            }
+
+            players.forEach(p => p.update());
+            shapes.forEach(s => s.update());
+
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                if (bullets[i].lifespan <= 0) bullets.splice(i, 1);
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                floatingTexts[i].update();
+                if (floatingTexts[i].life <= 0) floatingTexts.splice(i, 1);
+            }
+
+            checkCollisions();
+
+            if (isHost) broadcastGameState();
+            else sendLocalPlayerUpdate();
+
+            renderGridBackground();
+
+            shapes.forEach(s => s.draw(ctx));
+            bullets.forEach(b => b.draw(ctx));
+
+            // Render active players (only draw tanks that have health > 0)
+            players.forEach(p => {
+                if (p.health > 0) {
+                    p.draw(ctx);
+                }
+            });
+
+            particles.forEach(p => p.draw(ctx));
+            floatingTexts.forEach(ft => ft.draw(ctx));
+
+            ctx.save();
+            ctx.strokeStyle = '#f14e54';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(-camera.x, -camera.y, WORLD_SIZE, WORLD_SIZE);
+            ctx.restore();
+
+            updateHUD();
+            drawMinimap();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function renderGridBackground() {
+            ctx.fillStyle = COLORS.bgGrid;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = COLORS.bgLine;
+            ctx.lineWidth = 1;
+
+            const gridSize = 30;
+            const startX = Math.floor(camera.x / gridSize) * gridSize - camera.x;
+            const startY = Math.floor(camera.y / gridSize) * gridSize - camera.y;
+
+            ctx.beginPath();
+            for (let x = startX; x < canvas.width; x += gridSize) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+            }
+            for (let y = startY; y < canvas.height; y += gridSize) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+            }
+            ctx.stroke();
+        }
+
+        function drawMinimap() {
+            minimapCtx.clearRect(0, 0, 100, 100);
+            const scale = 100 / WORLD_SIZE;
+
+            if (localPlayer && localPlayer.health > 0) {
+                minimapCtx.fillStyle = '#00b2e1';
+                minimapCtx.beginPath();
+                minimapCtx.arc(localPlayer.x * scale, localPlayer.y * scale, 3, 0, Math.PI * 2);
+                minimapCtx.fill();
+            }
+
+            players.forEach(p => {
+                if (p.id !== localPlayer?.id && p.health > 0) {
+                    minimapCtx.fillStyle = '#f14e54';
+                    minimapCtx.beginPath();
+                    minimapCtx.arc(p.x * scale, p.y * scale, 2.5, 0, Math.PI * 2);
+                    minimapCtx.fill();
+                }
+            });
+        }
+
+        function updateHUD() {
+            if (!localPlayer) return;
+
+            const xpReq = getXpForLevel(localPlayer.level);
+            const xpPct = Math.min(100, Math.max(0, (localPlayer.xp / xpReq) * 100));
+            document.getElementById('xpBar').style.width = `${xpPct}%`;
+            document.getElementById('xpText').innerText = `${Math.floor(localPlayer.xp)} / ${xpReq} XP`;
+            document.getElementById('playerLevel').innerText = localPlayer.level;
+            document.getElementById('availablePoints').innerText = `Points: ${localPlayer.availablePoints}`;
+
+            // Only show alive tanks on the leaderboard
+            const leaderboardList = document.getElementById('leaderboardList');
+            const sorted = Array.from(players.values())
+                .filter(p => p.health > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 5);
+
+            leaderboardList.innerHTML = sorted.map((p, idx) => `
+                <div class="flex justify-between items-center text-[11px] ${p.id === localPlayer.id ? 'font-bold text-amber-400' : 'text-slate-300'}">
+                    <span class="truncate max-w-[100px]">${idx + 1}. ${p.name}</span>
+                    <span class="font-mono">${Math.floor(p.score)}</span>
+                </div>
+            `).join('');
+        }
+
+        function updateStatUI() {
+            const statsList = document.getElementById('statsList');
+            statsList.innerHTML = STAT_KEYS.map((stat, idx) => {
+                const level = localPlayer ? localPlayer.stats[stat.id] : 0;
+                let bars = '';
+                for (let i = 0; i < 7; i++) {
+                    bars += `<div class="h-2.5 w-full rounded-sm ${i < level ? 'bg-amber-400' : 'bg-slate-700'}"></div>`;
+                }
+
+                return `
+                    <div class="flex items-center space-x-1.5">
+                        <span class="w-4 text-center font-bold text-slate-400">${idx + 1}</span>
+                        <div class="flex-1">
+                            <div class="flex justify-between text-[10px] mb-0.5">
+                                <span>${stat.name}</span>
+                            </div>
+                            <div class="grid grid-cols-7 gap-0.5">
+                                ${bars}
+                            </div>
+                        </div>
+                        <button onclick="upgradePlayerStat('${stat.id}')" class="bg-slate-800 hover:bg-amber-500 text-white hover:text-slate-900 w-5 h-5 rounded flex items-center justify-center font-bold text-xs transition">
+                            +
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.upgradePlayerStat = function(statKey) {
+            if (localPlayer && localPlayer.upgradeStat(statKey)) {
+                updateStatUI();
+            }
+        };
+
+        function checkClassUpgrades() {
+            if (!localPlayer) return;
+
+            const container = document.getElementById('classUpgradeContainer');
+            const buttonsDiv = document.getElementById('classUpgradeButtons');
+            buttonsDiv.innerHTML = '';
+
+            const availableClasses = Object.keys(TANK_CLASSES).filter(className => {
+                const cls = TANK_CLASSES[className];
+                return cls.upgradesFrom && cls.upgradesFrom.includes(localPlayer.className) && localPlayer.level >= cls.levelReq;
+            });
+
+            if (availableClasses.length > 0) {
+                container.classList.remove('hidden');
+                availableClasses.forEach(clsName => {
+                    const btn = document.createElement('button');
+                    btn.className = 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-1.5 px-3 rounded-lg text-xs transition shadow';
+                    btn.innerText = clsName;
+                    btn.onclick = () => {
+                        localPlayer.changeClass(clsName);
+                        container.classList.add('hidden');
+                    };
+                    buttonsDiv.appendChild(btn);
+                });
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
+        function showGameOver() {
+            if (!localPlayer) return;
+            document.getElementById('finalScore').innerText = Math.floor(localPlayer.score);
+            document.getElementById('finalLevel').innerText = localPlayer.level;
+            document.getElementById('finalKills').innerText = localPlayer.kills;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        const tabSingle = document.getElementById('tabSingle');
+        const tabHost = document.getElementById('tabHost');
+        const tabJoin = document.getElementById('tabJoin');
+        const joinSection = document.getElementById('joinRoomSection');
+        const hostSection = document.getElementById('hostRoomSection');
+
+        function setActiveTab(tab) {
+            [tabSingle, tabHost, tabJoin].forEach(t => {
+                t.className = 'py-2 rounded-lg text-slate-400 hover:text-white transition';
+            });
+            tab.className = 'py-2 rounded-lg bg-cyan-500 text-slate-950 font-bold transition';
+
+            joinSection.classList.add('hidden');
+            hostSection.classList.add('hidden');
+
+            if (tab === tabSingle) gameMode = 'single';
+            if (tab === tabHost) { gameMode = 'host'; hostSection.classList.remove('hidden'); }
+            if (tab === tabJoin) { gameMode = 'join'; joinSection.classList.remove('hidden'); }
+        }
+
+        tabSingle.onclick = () => setActiveTab(tabSingle);
+        tabHost.onclick = () => setActiveTab(tabHost);
+        tabJoin.onclick = () => setActiveTab(tabJoin);
+
+        document.getElementById('startGameBtn').onclick = () => {
+            sound.init();
+
+            const name = document.getElementById('playerNameInput').value.trim() || 'Player';
+            document.getElementById('playerTankName').innerText = name;
+            document.getElementById('lobbyModal').classList.add('hidden');
+
+            // Clear old player list
+            players.clear();
+
+            if (gameMode === 'single') {
+                const playerId = 'pl_' + Math.random().toString(36).substr(2, 6);
+                localPlayer = new Tank(playerId, name);
+                players.set(playerId, localPlayer);
+                isHost = true;
+                initWorld();
+                updateRoomBadge('Singleplayer (Bots)', 'bg-yellow-500');
+            } else if (gameMode === 'host') {
+                isHost = true;
+                document.getElementById('roomIdContainer').classList.remove('hidden');
+                initWorld();
+                initPeerJS();
+                peer.on('open', (id) => {
+                    myPeerId = id;
+                    localPlayer = new Tank(id, name);
+                    players.set(id, localPlayer);
+                    document.getElementById('displayRoomId').innerText = id;
+                });
+            } else if (gameMode === 'join') {
+                isHost = false;
+                const hostId = document.getElementById('joinRoomIdInput').value.trim();
+                if (!hostId) {
+                    updateRoomBadge('No Room ID provided', 'bg-rose-500');
+                    return;
+                }
+                initPeerJS();
+                peer.on('open', (id) => {
+                    myPeerId = id;
+                    localPlayer = new Tank(id, name);
+                    players.set(id, localPlayer);
+                    joinRoom(hostId);
+                });
+            }
+
+            updateStatUI();
+            requestAnimationFrame(gameLoop);
+        };
+
+        document.getElementById('respawnBtn').onclick = () => {
+            document.getElementById('gameOverModal').classList.add('hidden');
+            
+            if (!localPlayer) return;
+
+            const name = localPlayer.name;
+            const playerId = localPlayer.id;
+
+            // Re-instantiate local player instance locally
+            localPlayer = new Tank(playerId, name);
+            localPlayer.maxHealth = localPlayer.getStatValue('maxHealth');
+            localPlayer.health = localPlayer.maxHealth;
+            localPlayer.x = Math.random() * (WORLD_SIZE - 400) + 200;
+            localPlayer.y = Math.random() * (WORLD_SIZE - 400) + 200;
+            
+            players.set(playerId, localPlayer);
+            
+            if (!isHost) {
+                sendRespawnSignal();
+            } else {
+                players.set(playerId, localPlayer);
+            }
+
+            updateStatUI();
+        };
+
+        document.getElementById('copyRoomBtn').onclick = () => {
+            const roomId = document.getElementById('displayRoomId').innerText;
+            navigator.clipboard.writeText(roomId);
+            alert('Room ID copied to clipboard!');
+        };
+
+        document.getElementById('muteBtn').onclick = () => {
+            sound.muted = !sound.muted;
+            document.getElementById('muteIcon').className = sound.muted ? 'fa-solid fa-volume-xmark text-rose-400 text-lg' : 'fa-solid fa-volume-high text-lg';
+        };
+
+        document.getElementById('startGameBtn').onclick = () => {
+            sound.init();
+
+            const name = document.getElementById('playerNameInput').value.trim() || 'Player';
+            document.getElementById('playerTankName').innerText = name;
+            document.getElementById('lobbyModal').classList.add('hidden');
+
+            const playerId = 'pl_' + Math.random().toString(36).substr(2, 6);
+            localPlayer = new Tank(playerId, name);
+            players.set(playerId, localPlayer);
+
+            if (gameMode === 'single') {
+                isHost = true;
+                initWorld();
+                updateRoomBadge('Singleplayer (Bots)', 'bg-yellow-500');
+            } else if (gameMode === 'host') {
+                isHost = true;
+                document.getElementById('roomIdContainer').classList.remove('hidden');
+                initWorld();
+                initPeerJS();
+                peer.on('open', (id) => {
+                    players.delete(playerId);
+                    localPlayer.id = id;
+                    players.set(id, localPlayer);
+                    document.getElementById('displayRoomId').innerText = id;
+                });
+            } else if (gameMode === 'join') {
+                isHost = false;
+                const hostId = document.getElementById('joinRoomIdInput').value.trim();
+                if (!hostId) {
+                    updateRoomBadge('No Room ID provided', 'bg-rose-500');
+                    return;
+                }
+                initPeerJS();
+                peer.on('open', (id) => {
+                    players.delete(playerId);
+                    localPlayer.id = id;
+                    players.set(id, localPlayer);
+                    joinRoom(hostId);
+                });
+            }
+
+            updateStatUI();
+            requestAnimationFrame(gameLoop);
+        };
+
+        document.getElementById('copyRoomBtn').onclick = () => {
+            const roomId = document.getElementById('displayRoomId').innerText;
+            if (roomId && roomId !== '---') {
+                const tempInput = document.createElement('input');
+                tempInput.value = roomId;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+            }
+        };
+
+    </script>
+</body>
+</html>
